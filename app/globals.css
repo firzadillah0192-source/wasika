@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Fajar Emas Design System */
+  --wasika-gold: #d4a843;
+  --wasika-copper: #cd7f32;
+  --wasika-gold-light: #f5c842;
+  --wasika-text-on-dark: #f5e6c0;
+  --wasika-text-muted: #c8a97a;
+  --wasika-cream: #fdf6e8;
+  --wasika-brown-dark: #2d1a0a;
+  --wasika-green-confirm: #2d5a3d;
+  
+  --background: #fdf6e8;
+  --foreground: #2d1a0a;
+  --card: #fdf6e8;
+  --card-foreground: #2d1a0a;
+  --popover: #fdf6e8;
+  --popover-foreground: #2d1a0a;
+  --primary: #d4a843;
+  --primary-foreground: #2d1a0a;
+  --secondary: #cd7f32;
+  --secondary-foreground: #fdf6e8;
+  --muted: #e8dcc8;
+  --muted-foreground: #c8a97a;
+  --accent: #f5c842;
+  --accent-foreground: #2d1a0a;
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: #c8a97a;
+  --input: #e8dcc8;
+  --ring: #d4a843;
+  --radius: 0.6875rem;
+}
+
+.dark {
+  --background: #1c0e00;
+  --foreground: #f5e6c0;
+  --card: #2d1a0a;
+  --card-foreground: #f5e6c0;
+  --popover: #2d1a0a;
+  --popover-foreground: #f5e6c0;
+  --primary: #d4a843;
+  --primary-foreground: #2d1a0a;
+  --secondary: #cd7f32;
+  --secondary-foreground: #f5e6c0;
+  --muted: #3d2a1a;
+  --muted-foreground: #c8a97a;
+  --accent: #f5c842;
+  --accent-foreground: #2d1a0a;
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: #4a3020;
+  --input: #3d2a1a;
+  --ring: #d4a843;
+}
+
+@theme inline {
+  --font-sans: 'Geist', 'Geist Fallback', sans-serif;
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  
+  /* Fajar Emas Colors */
+  --color-wasika-gold: var(--wasika-gold);
+  --color-wasika-copper: var(--wasika-copper);
+  --color-wasika-gold-light: var(--wasika-gold-light);
+  --color-wasika-text-on-dark: var(--wasika-text-on-dark);
+  --color-wasika-text-muted: var(--wasika-text-muted);
+  --color-wasika-cream: var(--wasika-cream);
+  --color-wasika-brown-dark: var(--wasika-brown-dark);
+  --color-wasika-green-confirm: var(--wasika-green-confirm);
+  
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Fajar Emas Background Gradients */
+.bg-wasika-dark {
+  background: linear-gradient(160deg, #1c0e00, #4a2800 55%, #1a3318);
+}
+
+.bg-wasika-light {
+  background: #fdf6e8;
+}
+
+/* Gold Button Style */
+.btn-wasika {
+  @apply bg-wasika-gold text-wasika-brown-dark font-bold py-3 px-6;
+  border-radius: 11px;
+}
+
+.btn-wasika:hover {
+  @apply bg-wasika-gold-light;
+}
+
+/* Arabic RTL styling */
+.arabic-text {
+  direction: rtl;
+  font-family: 'Traditional Arabic', 'Scheherazade New', serif;
+}
