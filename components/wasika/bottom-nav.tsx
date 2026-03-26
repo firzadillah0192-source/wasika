@@ -21,17 +21,20 @@ const panitiaNavItem = {
 
 export function BottomNav() {
   const pathname = usePathname()
-  const { user } = useUser()
+  const { user, isLoading } = useUser()
+
+  // Wait until loading is finished to avoid menu flicker/wrong menu
+  if (isLoading) {
+    return (
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-2 pb-safe bg-[#1c0e00] h-[64px] border-t border-[#d4a843]/25">
+        <div className="w-full h-full flex items-center justify-center opacity-20" />
+      </nav>
+    )
+  }
 
   const userRole = user?.role || 'anggota'
   const isManagement = userRole === "panitia" || userRole === "superadmin"
 
-  const navItems = isManagement
-    ? [...baseNavItems.slice(0, 4), panitiaNavItem] // Replace forum with management if items too many, or add if okay
-    : baseNavItems
-  
-  // Actually, let's keep it to 5 items max for better mobile UI
-  // If panitia, we'll show: Pohon, Cerita, Profil, Peta, Pengelola (Forum can be accessed via profile)
   const displayItems = isManagement 
     ? [
         baseNavItems[0], // Pohon
