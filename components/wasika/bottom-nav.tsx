@@ -36,13 +36,7 @@ export function BottomNav() {
   const isManagement = userRole === "panitia" || userRole === "superadmin"
 
   const displayItems = isManagement 
-    ? [
-        baseNavItems[0], // Pohon
-        baseNavItems[1], // Cerita
-        baseNavItems[2], // Profil
-        baseNavItems[3], // Peta
-        panitiaNavItem   // Pengelola
-      ]
+    ? [...baseNavItems, panitiaNavItem]
     : baseNavItems
 
   return (
@@ -62,7 +56,7 @@ export function BottomNav() {
           <Link
             key={item.href}
             href={item.href}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[48px]"
+            className="flex flex-col items-center gap-0.5 px-0.5 py-1 min-w-[38px]"
           >
             <div className="relative">
               <Icon
@@ -78,7 +72,7 @@ export function BottomNav() {
               )}
             </div>
             <span
-              className="text-[10px] font-medium"
+              className="text-[9px] font-medium"
               style={{ color: isActive ? "#d4a843" : "#c8a97a", opacity: isActive ? 1 : 0.6 }}
             >
               {item.label}
