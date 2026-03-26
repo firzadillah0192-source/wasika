@@ -7,6 +7,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BottomNav } from "@/components/wasika/bottom-nav"
 import { createClient } from "@/lib/supabase/client"
+import { useUser } from "@/context/user-context"
 
 // Dynamically import map components to avoid SSR issues
 const MapContainer = dynamic(
@@ -53,6 +54,7 @@ interface MemberLocation {
 
 export default function MapPage() {
   const router = useRouter()
+  const { allBaniIds } = useUser()
   const [selectedMember, setSelectedMember] = useState<MemberLocation | null>(null)
   const [isClient, setIsClient] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -75,33 +77,67 @@ export default function MapPage() {
       const { data: profile } = await (supabase.from("profiles").select("*, banis(*)").eq("id", user.id).single() as any)
       setBani(profile?.banis)
 
-      if (profile?.bani_id) {
-        const { data: persons } = await supabase
+      if (profile?.bani_id || allBaniIds.length > 0) {
+        const bids = allBaniIds.length > 0 ? allBaniIds : [profile.bani_id]
+        
+        // Fetch locations from profiles (registered users)
+        const { data: userLocs } = await supabase
+          .from("profiles")
+          .select("id, full_name, city, province, latitude, longitude")
+          .in("bani_id", bids)
+          .not("latitude", "is", null)
+          .not("longitude", "is", null)
+
+        // Fetch locations from persons (manual entries)
+        const { data: personLocs } = await supabase
           .from("persons")
-          .select("*")
-          .eq("bani_id", profile.bani_id)
+          .select("id, name, city, province, latitude, longitude, user_id")
+          .in("bani_id", bids)
           .not("latitude", "is", null)
           .not("longitude", "is", null)
         
-        if (persons) {
-          const locs: MemberLocation[] = persons.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            city: p.city || "Tidak diketahui",
-            province: p.province || "Tidak diketahui",
-            lat: Number(p.latitude),
-            lng: Number(p.longitude),
-            isCurrentUser: p.user_id === user.id
-          }))
-          setLocations(locs)
+        const combinedLocs: MemberLocation[] = []
+        const seenUserIds = new Set<string>()
+
+        // Add users first (higher priority for location)
+        userLocs?.forEach((u: any) => {
+          combinedLocs.push({
+            id: u.id,
+            name: u.full_name || "Anggota",
+            city: u.city || "Tidak diketahui",
+            province: u.province || "Tidak diketahui",
+            lat: Number(u.latitude),
+            lng: Number(u.longitude),
+            isCurrentUser: u.id === user.id
+          })
+          seenUserIds.add(u.id)
+        })
+
+        // Add persons who are NOT registered users or not already seen
+        personLocs?.forEach((p: any) => {
+          if (!p.user_id || !seenUserIds.has(p.user_id)) {
+            combinedLocs.push({
+              id: p.id,
+              name: p.name,
+              city: p.city || "Tidak diketahui",
+              province: p.province || "Tidak diketahui",
+              lat: Number(p.latitude),
+              lng: Number(p.longitude),
+              isCurrentUser: p.user_id === user.id
+            })
+          }
+        })
+
+        if (combinedLocs.length > 0) {
+          setLocations(combinedLocs)
 
           // Calculate stats
-          const uniqueCities = new Set(locs.map(l => l.city)).size
-          const uniqueProvinces = new Set(locs.map(l => l.province)).size
-          setStats({ total: locs.length, cities: uniqueCities, provinces: uniqueProvinces })
+          const uniqueCities = new Set(combinedLocs.map(l => l.city)).size
+          const uniqueProvinces = new Set(combinedLocs.map(l => l.province)).size
+          setStats({ total: combinedLocs.length, cities: uniqueCities, provinces: uniqueProvinces })
 
           // Top cities
-          const cityCounts = locs.reduce((acc, m) => {
+          const cityCounts = combinedLocs.reduce((acc, m) => {
             acc[m.city] = (acc[m.city] || 0) + 1
             return acc
           }, {} as Record<string, number>)
@@ -111,16 +147,12 @@ export default function MapPage() {
             .slice(0, 5)
           setTopCities(sorted)
           setMaxCityCount(Math.max(...sorted.map(([, count]) => count), 1))
-        } else {
-          console.log("No location data found in persons for bani_id:", profile.bani_id)
         }
-      } else {
-        console.log("User has no bani_id")
       }
       setLoading(false)
     }
     init()
-  }, [router])
+  }, [router, allBaniIds])
 
   return (
     <main className="min-h-screen bg-[#e8f5e9] flex flex-col pb-20">

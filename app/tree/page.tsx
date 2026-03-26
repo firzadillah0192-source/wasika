@@ -194,14 +194,26 @@ export default function FamilyTreePage() {
 
     const { data: profile } = await (supabase.from("profiles").select("*, banis(*)").eq("id", user.id).single() as any)
     
-    // Auto-fix for Panitia without matching bani_id link
+    // Sync role and bani_id if user is an owner of a bani
     const { data: ownedBani } = await supabase.from("banis").select("*").eq("owner_id", user.id).maybeSingle()
-    if (ownedBani && profile && profile.bani_id !== ownedBani.id) {
-       await supabase.from("profiles").update({ bani_id: ownedBani.id }).eq("id", user.id)
-       await supabase.from("persons").update({ bani_id: ownedBani.id }).eq("user_id", user.id)
-       // Update local profile object for immediate use below
-       profile.bani_id = ownedBani.id
-       profile.banis = ownedBani
+    if (ownedBani && profile) {
+       // Force role to panitia if they own a bani
+       if (profile.role !== 'panitia' || profile.role !== 'superadmin') {
+          profile.role = 'panitia'
+       }
+       if (profile.bani_id !== ownedBani.id) {
+          profile.bani_id = ownedBani.id
+       }
+       
+       // Update DB quietly
+       await supabase.from("profiles").update({ 
+          role: 'panitia', 
+          bani_id: ownedBani.id 
+       }).eq("id", user.id)
+       
+       await supabase.from("persons").update({ 
+          bani_id: ownedBani.id 
+       }).eq("user_id", user.id)
     }
 
     setUserProfile(profile)
@@ -222,8 +234,19 @@ export default function FamilyTreePage() {
         if (rs) allRelations = [...allRelations, ...rs]
       }
       
-      // Deduplicate persons and relations
-      const persons = allPersons.filter((p, i, self) => i === self.findIndex(x => x.id === p.id))
+      // Deduplicate persons by ID AND by Name (fuzzy matching)
+      // This solves the issue where the same person might exist twice due to historical data or multiple bani branches
+      const persons = allPersons.filter((p, i, self) => {
+        const firstById = self.findIndex(x => x.id === p.id)
+        if (i !== firstById) return false
+        
+        // Also check for name duplicates (case-insensitive)
+        // If a person with the same name already exists earlier in the array, skip this one
+        const firstByName = self.findIndex(x => x.name.toLowerCase().trim() === p.name.toLowerCase().trim())
+        if (i !== firstByName) return false
+        
+        return true
+      })
       const relations = allRelations.filter((r, i, self) => i === self.findIndex(x => x.id === r.id))
 
       if (persons && relations) {

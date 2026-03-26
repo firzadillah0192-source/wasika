@@ -23,10 +23,24 @@ export function BottomNav() {
   const pathname = usePathname()
   const { user } = useUser()
 
-  const navItems =
-    user?.role === "panitia" || user?.role === "superadmin"
-      ? [...baseNavItems, panitiaNavItem]
-      : baseNavItems
+  const userRole = user?.role || 'anggota'
+  const isManagement = userRole === "panitia" || userRole === "superadmin"
+
+  const navItems = isManagement
+    ? [...baseNavItems.slice(0, 4), panitiaNavItem] // Replace forum with management if items too many, or add if okay
+    : baseNavItems
+  
+  // Actually, let's keep it to 5 items max for better mobile UI
+  // If panitia, we'll show: Pohon, Cerita, Profil, Peta, Pengelola (Forum can be accessed via profile)
+  const displayItems = isManagement 
+    ? [
+        baseNavItems[0], // Pohon
+        baseNavItems[1], // Cerita
+        baseNavItems[2], // Profil
+        baseNavItems[3], // Peta
+        panitiaNavItem   // Pengelola
+      ]
+    : baseNavItems
 
   return (
     <nav
@@ -37,7 +51,7 @@ export function BottomNav() {
         height: "64px",
       }}
     >
-      {navItems.map((item) => {
+      {displayItems.map((item) => {
         const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
         const Icon = item.icon
 

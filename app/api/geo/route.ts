@@ -14,29 +14,39 @@ export async function POST(request: Request) {
     const nominatimUrl = process.env.NEXT_PUBLIC_NOMINATIM_URL || 'https://nominatim.openstreetmap.org'
     const url = `${nominatimUrl}/search?q=${encodeURIComponent(address)}&format=json&limit=1&addressdetails=1`
     
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'WaSiKa-App/1.0'
-      }
-    })
-    
-    if (!response.ok) {
-      return NextResponse.json({ error: 'Geocoding failed' }, { status: response.status })
-    }
-
-    const results = await response.json()
-    
-    if (results && results.length > 0) {
-      const { lat, lon, display_name, address: addrDetails } = results[0]
-      return NextResponse.json({
-        lat: parseFloat(lat),
-        lng: parseFloat(lon),
-        displayName: display_name,
-        addressDetails: addrDetails
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'WaSiKa-App/1.0',
+          'Accept-Language': 'id'
+        },
+        next: { revalidate: 86400 } // Cache results for 24h
       })
+      
+      if (response.ok) {
+        const results = await response.json()
+        if (results && results.length > 0) {
+          const { lat, lon, display_name, address: addrDetails } = results[0]
+          return NextResponse.json({
+            lat: parseFloat(lat),
+            lng: parseFloat(lon),
+            displayName: display_name,
+            addressDetails: addrDetails
+          })
+        }
+      }
+    } catch (e) {
+      console.warn('External geocoding failed, using fallback')
     }
 
-    return NextResponse.json({ error: 'No results found' }, { status: 404 })
+    // Default Fallback to Jakarta if API fails or no results
+    return NextResponse.json({
+      lat: -6.2088,
+      lng: 106.8456,
+      displayName: 'Jakarta (Default Fallback)',
+      fallback: true
+    })
+
   } catch (error) {
     console.error('Geocoding error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
