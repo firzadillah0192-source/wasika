@@ -35,10 +35,35 @@ export async function POST(request: Request) {
     }
 
     // Link user profile to bani (keep role as anggota)
+    const updateData: any = { bani_id: baniData.id, role: 'anggota' }
+    
+    // Attempt to resolve root_bani_id if the hierarchy function exists
+    try {
+      const { data: ancestors } = await supabaseAdmin.rpc('get_bani_ancestors', { p_bani_id: baniData.id })
+      let rootBaniId = baniData.id
+      if (ancestors && Array.isArray(ancestors) && ancestors.length > 0) {
+        rootBaniId = ancestors[ancestors.length - 1]
+      }
+      updateData.root_bani_id = rootBaniId
+    } catch (e) {
+      // Graceful fallback if SQL migration hasn't run yet
+    }
+
     await supabaseAdmin
       .from('profiles')
-      .update({ bani_id: baniData.id, role: 'anggota' })
+      .update(updateData)
       .eq('id', user.id)
+
+    // Attempt to insert primary membership (trigger will handle inherited)
+    try {
+      await supabaseAdmin.from('bani_memberships').insert({
+        user_id: user.id,
+        bani_id: baniData.id,
+        membership_type: 'primary'
+      })
+    } catch (e) {
+      // Graceful fallback if SQL migration hasn't run yet
+    }
 
     return NextResponse.json({
       success: true,

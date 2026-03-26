@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name } = body
+    const { name, parentBaniId } = body
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: 'Nama keluarga wajib diisi.' }, { status: 400 })
@@ -25,15 +25,46 @@ export async function POST(request: Request) {
     // Generate unique code
     const baniCode = Math.random().toString(36).substring(2, 10).toUpperCase()
 
+    // Calculate level and parent
+    let parentId = null
+    let baniLevel = 0
+    let rootBaniId = null
+    
+    if (parentBaniId) {
+      parentId = parentBaniId
+      try {
+        const { data: pData } = await supabaseAdmin.from('banis').select('bani_level').eq('id', parentId).single()
+        if (pData) {
+          baniLevel = (pData.bani_level || 0) + 1
+        }
+        
+        const { data: ancestors } = await supabaseAdmin.rpc('get_bani_ancestors', { p_bani_id: parentId })
+        if (ancestors && Array.isArray(ancestors) && ancestors.length > 0) {
+          rootBaniId = ancestors[ancestors.length - 1]
+        } else {
+          rootBaniId = parentId // Parent is the root
+        }
+      } catch (e) {
+        // Fallback for missing SQL migrations
+      }
+    }
+
+    const insertData: any = {
+      name: name.trim(),
+      bani_code: baniCode,
+      status: 'pending',
+      owner_id: user.id
+    }
+    
+    if (parentId) {
+      insertData.parent_bani_id = parentId
+      insertData.bani_level = baniLevel
+    }
+
     // Use admin client to bypass RLS
     const { data: newBani, error: baniError } = await supabaseAdmin
       .from('banis')
-      .insert({
-        name: name.trim(),
-        bani_code: baniCode,
-        status: 'pending',
-        owner_id: user.id,
-      })
+      .insert(insertData)
       .select()
       .single()
 
@@ -41,11 +72,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: baniError.message }, { status: 500 })
     }
 
+    if (!rootBaniId) rootBaniId = newBani.id
+
     // Link user profile to bani and set role to panitia
+    const updateProfileData: any = { bani_id: newBani.id, role: 'panitia' }
+    try {
+      updateProfileData.root_bani_id = rootBaniId
+    } catch (e) {}
+
     await supabaseAdmin
       .from('profiles')
-      .update({ bani_id: newBani.id, role: 'panitia' })
+      .update(updateProfileData)
       .eq('id', user.id)
+
+    // Ensure they get membership in this new Bani
+    try {
+      await supabaseAdmin.from('bani_memberships').insert({
+        user_id: user.id,
+        bani_id: newBani.id,
+        membership_type: 'pengelola'
+      })
+    } catch (e) {}
 
     return NextResponse.json({
       success: true,

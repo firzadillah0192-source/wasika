@@ -6,7 +6,7 @@ import {
 } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { Users, Clock, UserCheck, CreditCard, Check, X, Building2, Shield } from "lucide-react"
+import { Users, Clock, UserCheck, CreditCard, Check, X, Building2, Shield, ChevronRight } from "lucide-react"
 
 interface BaniRequest {
   id: string
@@ -21,6 +21,9 @@ interface BaniItem {
   name: string
   members_count: number
   status: string
+  parent_bani_id: string | null
+  bani_level: number
+  sub_banis?: BaniItem[]
 }
 
 export default function SuperAdminPage() {
@@ -29,6 +32,9 @@ export default function SuperAdminPage() {
   const [approvals, setApprovals] = useState<BaniRequest[]>([])
   const [baniList, setBaniList] = useState<BaniItem[]>([])
   const [stats, setStats] = useState({ totalBani: 0, pending: 0, totalMembers: 0 })
+  const [selectedBani, setSelectedBani] = useState<BaniItem | null>(null)
+  const [selectedBaniMembers, setSelectedBaniMembers] = useState<any[]>([])
+  const [loadingMembers, setLoadingMembers] = useState(false)
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
@@ -81,16 +87,25 @@ export default function SuperAdminPage() {
           id: b.id,
           name: b.name,
           members_count: count,
-          status: b.status
+          status: b.status,
+          parent_bani_id: b.parent_bani_id || null,
+          bani_level: b.bani_level || 0,
         }
       })
-      setBaniList(items)
+
+      // Build tree: attach sub_banis to parents
+      const rootBanis = items.filter(b => !b.parent_bani_id)
+      rootBanis.forEach(root => {
+        root.sub_banis = items.filter(b => b.parent_bani_id === root.id)
+      })
+
+      setBaniList(rootBanis)
 
       const totalMembers = items.reduce((sum, b) => sum + b.members_count, 0)
       setStats({
         totalBani: items.length,
         pending: pending?.length || 0,
-        totalMembers: totalMembers
+        totalMembers
       })
     }
     setLoading(false)
@@ -110,6 +125,47 @@ export default function SuperAdminPage() {
     const supabase = createClient()
     await supabase.from("banis").update({ status: "suspended" }).eq("id", id)
     fetchData()
+  }
+
+  const fetchBaniMembers = async (bani: BaniItem) => {
+    setSelectedBani(bani)
+    setLoadingMembers(true)
+    const supabase = createClient()
+    const { data: members } = await supabase
+      .from("profiles")
+      .select("*, persons!inner(id, name)")
+      .eq("bani_id", bani.id)
+    
+    setSelectedBaniMembers(members || [])
+    setLoadingMembers(false)
+  }
+
+  const handleDeleteBani = async (id: string) => {
+    if (!confirm("Hapus Bani ini secara permanen? Semua data silsilah dan forum akan hilang.")) return
+    const supabase = createClient()
+    await supabase.from("banis").delete().eq("id", id)
+    setSelectedBani(null)
+    fetchData()
+  }
+
+  const handleDeleteMember = async (profileId: string) => {
+    if (!confirm("Hapus anggota ini dari Bani?")) return
+    const supabase = createClient()
+    // Unlink person from user
+    await supabase.from("persons").update({ user_id: null }).eq("user_id", profileId)
+    // Unlink profile from bani
+    await (supabase.from("profiles").update({ bani_id: null, role: 'anggota' }).eq("id", profileId) as any)
+    
+    if (selectedBani) fetchBaniMembers(selectedBani)
+    fetchData()
+  }
+
+  const handleToggleRole = async (profileId: string, currentRole: string) => {
+    const newRole = currentRole === 'panitia' ? 'anggota' : 'panitia'
+    const supabase = createClient()
+    await (supabase.from("profiles").update({ role: newRole }).eq("id", profileId) as any)
+    
+    if (selectedBani) fetchBaniMembers(selectedBani)
   }
 
   if (loading) {
@@ -221,26 +277,128 @@ export default function SuperAdminPage() {
 
         {/* Room Management */}
         <section className="bg-white rounded-2xl border border-wasika-text-muted/20 overflow-hidden shadow-sm">
-          <div className="px-4 py-3 border-b border-wasika-text-muted/15">
-            <h2 className="text-wasika-brown-dark font-bold text-sm">KELOLA BANI</h2>
-            <p className="text-wasika-text-muted text-xs mt-0.5">Semua keluarga terdaftar</p>
+          <div className="px-4 py-3 border-b border-wasika-text-muted/15 flex items-center justify-between">
+            <div>
+              <h2 className="text-wasika-brown-dark font-bold text-sm">KELOLA BANI</h2>
+              <p className="text-wasika-text-muted text-xs mt-0.5">Hierarki keluarga terdaftar</p>
+            </div>
           </div>
           <div className="divide-y divide-wasika-text-muted/10">
             {baniList.map((bani) => (
-              <div key={bani.id} className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-wasika-brown-dark font-medium text-sm">{bani.name}</p>
-                  <p className="text-wasika-text-muted text-xs">{bani.members_count} anggota</p>
-                </div>
-                <span
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    bani.status === "active"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}
+              <div key={bani.id}>
+                {/* Root Bani */}
+                <div 
+                  onClick={() => selectedBani?.id === bani.id ? setSelectedBani(null) : fetchBaniMembers(bani)}
+                  className="px-4 py-4 flex items-center justify-between cursor-pointer hover:bg-wasika-cream/30 transition-colors"
                 >
-                  {bani.status === "active" ? "Aktif" : "Pending"}
-                </span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-wasika-gold/20 flex items-center justify-center border-2 border-wasika-gold/30">
+                      <Building2 className="w-5 h-5 text-wasika-gold" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-wasika-brown-dark font-bold text-sm">{bani.name}</p>
+                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-wasika-gold/10 text-wasika-gold border border-wasika-gold/20">ROOT</span>
+                      </div>
+                      <p className="text-wasika-text-muted text-xs">
+                        {bani.members_count} anggota
+                        {(bani.sub_banis?.length ?? 0) > 0 && ` · ${bani.sub_banis!.length} sub-bani`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      bani.status === "active" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                    }`}>
+                      {bani.status === "active" ? "Aktif" : "Pending"}
+                    </span>
+                    <ChevronRight className={`w-5 h-5 text-wasika-text-muted transition-transform ${selectedBani?.id === bani.id ? "rotate-90" : ""}`} />
+                  </div>
+                </div>
+
+                {/* Sub-banis */}
+                {(bani.sub_banis?.length ?? 0) > 0 && (
+                  <div className="bg-wasika-cream/20">
+                    {bani.sub_banis!.map(sub => (
+                      <div key={sub.id}
+                        onClick={() => selectedBani?.id === sub.id ? setSelectedBani(null) : fetchBaniMembers(sub)}
+                        className="pl-8 pr-4 py-3 flex items-center justify-between cursor-pointer hover:bg-wasika-cream/50 transition-colors border-t border-wasika-text-muted/5"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-1 h-8 bg-wasika-gold/30 rounded-full" />
+                          <div className="w-8 h-8 rounded-full bg-wasika-copper/10 flex items-center justify-center">
+                            <Building2 className="w-4 h-4 text-wasika-copper" />
+                          </div>
+                          <div>
+                            <p className="text-wasika-brown-dark font-medium text-sm">{sub.name}</p>
+                            <p className="text-wasika-text-muted text-[10px]">{sub.members_count} anggota</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase ${
+                            sub.status === "active" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                          }`}>
+                            {sub.status === "active" ? "Aktif" : "Pending"}
+                          </span>
+                          <ChevronRight className={`w-4 h-4 text-wasika-text-muted transition-transform ${selectedBani?.id === sub.id ? "rotate-90" : ""}`} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Expanded Member List */}
+                {selectedBani?.id === bani.id && (
+                  <div className="bg-wasika-cream/20 px-4 py-4 border-t border-wasika-text-muted/10 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-wasika-brown-dark font-bold text-xs">DAFTAR ANGGOTA</h3>
+                      <button 
+                        onClick={() => handleDeleteBani(bani.id)}
+                        className="text-red-600 text-[10px] font-bold hover:underline"
+                      >
+                        HAPUS BANI
+                      </button>
+                    </div>
+
+                    {loadingMembers ? (
+                      <p className="text-wasika-text-muted text-xs animate-pulse text-center py-4">Memuat anggota...</p>
+                    ) : selectedBaniMembers.length === 0 ? (
+                      <p className="text-wasika-text-muted text-xs text-center py-4">Belum ada anggota terdaftar</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedBaniMembers.map((m) => (
+                          <div key={m.id} className="bg-white rounded-xl p-3 border border-wasika-text-muted/10 flex items-center justify-between shadow-sm">
+                            <div>
+                               <p className="text-wasika-brown-dark font-bold text-sm">{m.full_name}</p>
+                               <div className="flex items-center gap-2 mt-0.5">
+                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${m.role === 'panitia' ? 'bg-wasika-gold/20 text-wasika-brown-dark' : 'bg-wasika-text-muted/10 text-wasika-text-muted'}`}>
+                                   {m.role === 'panitia' ? 'Pengelola' : 'Anggota'}
+                                 </span>
+                                 <span className="text-[10px] text-wasika-text-muted">{m.email}</span>
+                               </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                               <button 
+                                 onClick={() => handleToggleRole(m.id, m.role)}
+                                 className="p-2 text-wasika-gold hover:bg-wasika-gold/5 rounded-lg transition-colors"
+                                 title={m.role === 'panitia' ? "Jadikan Anggota Biasa" : "Jadikan Pengelola"}
+                               >
+                                 <UserCheck className="w-4 h-4" />
+                               </button>
+                               <button 
+                                 onClick={() => handleDeleteMember(m.id)}
+                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                 title="Hapus dari Bani"
+                               >
+                                 <X className="w-4 h-4" />
+                               </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

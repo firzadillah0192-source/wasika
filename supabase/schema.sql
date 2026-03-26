@@ -1,5 +1,5 @@
 -- WaSiKa (Warisan Silsilah Keluarga) Database Schema
--- Last Updated: 2026-03-25
+-- Last Updated: 2026-03-26 (v2 — Bani Hierarchy)
 
 -- Enable UUID Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS banis (
   bani_code text UNIQUE NOT NULL,
   status text CHECK (status IN ('pending','active','suspended')) DEFAULT 'pending',
   owner_id uuid REFERENCES auth.users(id),
+  parent_bani_id uuid REFERENCES banis(id) ON DELETE SET NULL, -- null = root/utama
+  bani_level integer DEFAULT 0,                                -- 0=root, 1=sub, dst
   created_at timestamptz DEFAULT now()
 );
 
@@ -26,7 +28,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   full_name text,
   email text,
   role text CHECK (role IN ('anggota','panitia','superadmin')) DEFAULT 'anggota',
-  bani_id uuid REFERENCES banis(id),
+  bani_id uuid REFERENCES banis(id),       -- primary bani (tempat daftar)
+  root_bani_id uuid REFERENCES banis(id),  -- bani paling atas (automatic)
   created_at timestamptz DEFAULT now()
 );
 

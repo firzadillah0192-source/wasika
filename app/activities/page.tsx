@@ -9,9 +9,11 @@ import PostCard from '@/components/wasika/post-card'
 import ComposeModal from '@/components/wasika/compose-modal'
 import CommentSheet from '@/components/wasika/comment-sheet'
 import type { Post } from '@/types/database'
+import { useUser } from '@/context/user-context'
 
 export default function AktivitasPage() {
   const router = useRouter()
+  const { memberships, allBaniIds, user: ctxUser } = useUser()
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<any>(null)
   const [person, setPerson] = useState<any>(null)
@@ -25,9 +27,10 @@ export default function AktivitasPage() {
   
   const supabase = createClient()
 
-  const fetchPosts = useCallback(async (baniId: string) => {
+  const fetchPosts = useCallback(async () => {
     try {
-      const res = await fetch(`/api/posts?baniId=${baniId}`)
+      // Posts are fetched without baniId filter — RLS handles the cross-bani access
+      const res = await fetch(`/api/posts`)
       if (res.ok) {
         const data = await res.json()
         setPosts(data || [])
@@ -44,44 +47,46 @@ export default function AktivitasPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return router.replace("/login")
 
-      const { data: prof } = await supabase.from('profiles').select('*, banis(name, events(name))').eq('id', user.id).single()
+      const { data: prof } = await supabase.from('profiles').select('*, banis(name)').eq('id', user.id).single()
       if (!prof?.bani_id) return router.replace("/join")
 
       const { data: pers } = await supabase.from('persons').select('*').eq('user_id', user.id).single()
       
       setProfile(prof)
       setPerson(pers)
-      fetchPosts(prof.bani_id)
+      fetchPosts()
     }
     init()
   }, [router, fetchPosts, supabase])
 
-  // Realtime Subscription
+  // Realtime subscription across ALL family banis
   useEffect(() => {
     if (!profile?.bani_id) return
 
-    const channel = supabase
-      .channel(`bani_posts_${profile.bani_id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `bani_id=eq.${profile.bani_id}` }, (payload) => {
-        // Only trigger 'new posts' bubble if the post wasn't made by current user
-        if (payload.new.person_id !== person?.id) {
-          setHasNewPosts(true)
-        } else {
-          // If we made the post, fetch immediately silently
-          fetchPosts(profile.bani_id)
-        }
-      })
-      .subscribe()
+    // Subscribe to all bani channels from memberships
+    const baniIdsToWatch = allBaniIds.length > 0 ? allBaniIds : [profile.bani_id]
+    const channels = baniIdsToWatch.map(bid =>
+      supabase
+        .channel(`bani_posts_${bid}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `bani_id=eq.${bid}` }, (payload) => {
+          if (payload.new.person_id !== person?.id) {
+            setHasNewPosts(true)
+          } else {
+            fetchPosts()
+          }
+        })
+        .subscribe()
+    )
 
     return () => {
-      supabase.removeChannel(channel)
+      channels.forEach(ch => supabase.removeChannel(ch))
     }
-  }, [profile?.bani_id, person?.id, fetchPosts, supabase])
+  }, [profile?.bani_id, person?.id, fetchPosts, supabase, allBaniIds])
 
   const handleRefreshNew = () => {
     setHasNewPosts(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    if (profile?.bani_id) fetchPosts(profile.bani_id)
+    fetchPosts()
   }
 
   const handleReact = async (postId: string, emoji: string) => {
@@ -198,7 +203,7 @@ export default function AktivitasPage() {
           personId={person.id}
           baniId={profile.bani_id}
           onClose={() => { setShowCompose(false); setQuotedPost(null); }}
-          onSuccess={() => { setShowCompose(false); fetchPosts(profile.bani_id); }}
+          onSuccess={() => { setShowCompose(false); fetchPosts(); }}
           quotedPost={quotedPost}
         />
       )}

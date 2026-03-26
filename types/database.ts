@@ -1,5 +1,45 @@
 // types/database.ts
 
+export interface Bani {
+  id: string
+  name: string
+  description: string | null
+  location: string | null
+  bani_code: string
+  status: 'pending' | 'active' | 'suspended'
+  owner_id: string
+  parent_bani_id: string | null  // null = root/bani utama
+  bani_level: number             // 0 = root, 1 = sub, 2 = sub-sub
+  created_at: string
+  // joined fields
+  parent_bani?: Bani
+  sub_banis?: Bani[]
+  member_count?: number
+}
+
+export interface BaniMembership {
+  id: string
+  user_id: string
+  bani_id: string
+  membership_type: 'primary' | 'inherited' | 'pengelola'
+  joined_at: string
+  bani?: Bani
+}
+
+export interface Profile {
+  id: string
+  full_name: string | null
+  email: string | null
+  role: 'anggota' | 'panitia' | 'superadmin'
+  bani_id: string | null       // primary bani (tempat daftar)
+  root_bani_id: string | null  // bani utama (root ancestor)
+  created_at: string
+  // joined
+  bani?: Bani
+  root_bani?: Bani
+  memberships?: BaniMembership[]
+}
+
 export interface Person {
   id: string
   name: string
@@ -14,6 +54,8 @@ export interface Person {
   city?: string
   province?: string
   created_at?: string
+  // joined
+  bani?: Pick<Bani, 'id' | 'name' | 'bani_level'>
 }
 
 export interface Post {
@@ -29,6 +71,7 @@ export interface Post {
   updated_at: string
   // joined fields
   person?: Person
+  bani?: Pick<Bani, 'id' | 'name' | 'bani_level' | 'parent_bani_id'>
   quoted_post?: Post
   reactions?: Reaction[]
   comments?: { count: number }[] | Comment[]

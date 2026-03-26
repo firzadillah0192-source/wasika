@@ -3,11 +3,8 @@ import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const baniId = searchParams.get('baniId')
   const cursor = searchParams.get('cursor')
   const limit = parseInt(searchParams.get('limit') || '20', 10)
-
-  if (!baniId) return NextResponse.json({ error: 'baniId required' }, { status: 400 })
 
   const supabase = await createClient()
 
@@ -16,6 +13,7 @@ export async function GET(request: Request) {
     .select(`
       *,
       person:persons(id, name, user_id),
+      bani:banis(id, name, parent_bani_id),
       reactions(id, emoji, person_id),
       comments(count),
       quoted_post:posts!quoted_post_id(
@@ -23,7 +21,6 @@ export async function GET(request: Request) {
         person:persons(id, name)
       )
     `)
-    .eq('bani_id', baniId)
     .order('created_at', { ascending: false })
     .limit(limit)
 

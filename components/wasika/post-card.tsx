@@ -183,13 +183,20 @@ export default function PostCard({ post, currentPersonId, onReact, onComment, on
 
         <div className="flex-1 min-w-0">
           {/* Header */}
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-semibold text-wasika-brown-dark text-[15px] truncate">
-              {post.post_type === 'repost' && post.quoted_post?.person?.name 
-                ? post.quoted_post.person.name
-                : post.person?.name || 'Anggota'}
-            </span>
-            <span className="text-wasika-text-muted text-xs">&middot; {formatTime(post.created_at)}</span>
+          <div className="flex flex-col gap-0.5 mb-2">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-semibold text-wasika-brown-dark text-[15px] truncate">
+                {post.post_type === 'repost' && post.quoted_post?.person?.name 
+                  ? post.quoted_post.person.name
+                  : post.person?.name || 'Anggota'}
+              </span>
+              <span className="text-wasika-text-muted text-xs">&middot; {formatTime(post.created_at)}</span>
+            </div>
+            {(post as any).bani && (
+              <div className="inline-flex self-start items-center px-1.5 py-0.5 rounded-md bg-wasika-gold/10 text-wasika-gold text-[9px] font-bold uppercase tracking-wider border border-wasika-gold/20">
+                Keluarga {(post as any).bani.name}
+              </div>
+            )}
           </div>
 
           {/* Main Content */}

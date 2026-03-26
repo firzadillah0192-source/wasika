@@ -19,11 +19,16 @@ export default function JoinPage() {
   // Form states
   const [baniCode, setBaniCode] = useState("")
   const [baniName, setBaniName] = useState("")
+  const [parentBaniId, setParentBaniId] = useState<string | null>(null)
+  const [parentBaniSearch, setParentBaniSearch] = useState("")
+  const [parentBaniResults, setParentBaniResults] = useState<any[]>([])
+  const [selectedParentBani, setSelectedParentBani] = useState<any | null>(null)
 
   // Created bani result
   const [createdBani, setCreatedBani] = useState<{ name: string; code: string } | null>(null)
 
   const [userProfile, setUserProfile] = useState<any>(null)
+  const [directBani, setDirectBani] = useState<{ id: string; name: string; bani_code: string } | null>(null)
 
   useEffect(() => {
     const init = async () => {
@@ -50,6 +55,18 @@ export default function JoinPage() {
       }
 
       setLoading(false)
+
+      // Handle direct join from QR
+      const searchParams = new URLSearchParams(window.location.search)
+      const bId = searchParams.get("baniId")
+      if (bId) {
+        const { data: bData } = await supabase.from("banis").select("id, name, bani_code").eq("id", bId).single()
+        if (bData) {
+          setDirectBani(bData)
+          setMode("join")
+          setBaniCode(bData.bani_code)
+        }
+      }
     }
     init()
   }, [router])
@@ -67,7 +84,7 @@ export default function JoinPage() {
       const res = await fetch("/api/bani/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: baniName }),
+        body: JSON.stringify({ name: baniName, parentBaniId }),
       })
 
       const result = await res.json()
@@ -276,19 +293,66 @@ export default function JoinPage() {
 
               <form onSubmit={handleCreateBani} className="space-y-4">
                 <div>
-                  <label className="block text-wasika-text-muted text-sm mb-2">Nama Keluarga</label>
+                  <label className="block text-wasika-text-muted text-sm mb-2">Nama Keluarga (Bani)</label>
                   <input
                     type="text"
                     value={baniName}
                     onChange={(e) => setBaniName(e.target.value)}
-                    placeholder="Contoh: Bani Hasan Al-Mubarak"
+                    placeholder="Contoh: Bani Rohimi atau Bani Umar"
                     className="w-full bg-wasika-brown-dark/60 border border-wasika-gold/30 rounded-[11px] py-3.5 px-4 text-wasika-text-on-dark placeholder:text-wasika-text-muted/60 focus:outline-none focus:border-wasika-gold focus:ring-1 focus:ring-wasika-gold/50 text-base"
                     required
                   />
+                </div>
+
+                {/* Optional parent bani */}
+                <div>
+                  <label className="block text-wasika-text-muted text-sm mb-2">
+                    Bagian dari Bani yang lebih besar? <span className="text-wasika-text-muted/60 text-xs">(opsional)</span>
+                  </label>
+                  {selectedParentBani ? (
+                    <div className="flex items-center justify-between bg-wasika-gold/10 border border-wasika-gold/30 rounded-[11px] px-4 py-3">
+                      <span className="text-wasika-gold font-bold text-sm">{selectedParentBani.name}</span>
+                      <button type="button" onClick={() => { setSelectedParentBani(null); setParentBaniId(null); setParentBaniSearch("") }} className="text-wasika-text-muted text-xs hover:text-red-400">Hapus</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        value={parentBaniSearch}
+                        onChange={async (e) => {
+                          setParentBaniSearch(e.target.value)
+                          if (e.target.value.length >= 2) {
+                            try {
+                              const res = await fetch(`/api/bani/search?q=${encodeURIComponent(e.target.value)}`)
+                              const data = await res.json()
+                              setParentBaniResults(data.results || [])
+                            } catch (err) { setParentBaniResults([]) }
+                          } else {
+                            setParentBaniResults([])
+                          }
+                        }}
+                        placeholder="Cari nama Bani Utama..."
+                        className="w-full bg-wasika-brown-dark/60 border border-wasika-gold/30 rounded-[11px] py-3 px-4 text-wasika-text-on-dark placeholder:text-wasika-text-muted/60 focus:outline-none focus:border-wasika-gold text-sm"
+                      />
+                      {parentBaniResults.length > 0 && (
+                        <div className="mt-1 bg-wasika-brown-dark border border-wasika-gold/20 rounded-xl overflow-hidden">
+                          {parentBaniResults.map((b: any) => (
+                            <button key={b.id} type="button"
+                              onClick={() => { setSelectedParentBani(b); setParentBaniId(b.id); setParentBaniResults([]); setParentBaniSearch("") }}
+                              className="w-full text-left px-4 py-3 text-wasika-text-on-dark hover:bg-wasika-gold/10 transition-colors text-sm"
+                            >
+                              {b.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <p className="text-[10px] text-wasika-text-muted mt-1 px-1">
-                    Kode unik akan dibuat otomatis setelah pembuatan.
+                    Contoh: Bani Rohimi adalah bagian dari Bani Umar.
                   </p>
                 </div>
+
                 <button
                   type="submit"
                   disabled={submitting}
@@ -305,7 +369,7 @@ export default function JoinPage() {
         {mode === "join" && (
           <div className="max-w-sm mx-auto">
             <button
-              onClick={() => { setMode("choose"); setError(null) }}
+              onClick={() => { setMode("choose"); setError(null); setDirectBani(null) }}
               className="text-wasika-text-muted hover:text-wasika-gold text-sm mb-6 inline-flex items-center gap-1 transition-colors"
             >
               ← Kembali
@@ -317,34 +381,51 @@ export default function JoinPage() {
                   <Users className="w-5 h-5 text-wasika-copper" />
                 </div>
                 <div>
-                  <h2 className="text-wasika-copper font-bold">Gabung Keluarga</h2>
-                  <p className="text-wasika-text-muted text-xs">Masukkan kode dari pengelola</p>
+                  <h2 className="text-wasika-copper font-bold">{directBani ? "Gabung Keluarga" : "Gabung Keluarga"}</h2>
+                  <p className="text-wasika-text-muted text-xs">{directBani ? `Anda akan bergabung ke ${directBani.name}` : "Masukkan kode dari pengelola"}</p>
                 </div>
               </div>
 
-              <form onSubmit={handleJoinBani} className="space-y-4">
-                <div>
-                  <label className="block text-wasika-text-muted text-sm mb-2">Kode Bani</label>
-                  <input
-                    type="text"
-                    value={baniCode}
-                    onChange={(e) => setBaniCode(e.target.value.toUpperCase())}
-                    placeholder="Masukkan kode, contoh: X4K9M2PQ"
-                    className="w-full bg-wasika-brown-dark/60 border border-wasika-gold/30 rounded-[11px] py-3.5 px-4 text-wasika-text-on-dark placeholder:text-wasika-text-muted/60 focus:outline-none focus:border-wasika-gold focus:ring-1 focus:ring-wasika-gold/50 text-base font-mono tracking-wider text-center text-lg"
-                    required
-                  />
-                  <p className="text-[10px] text-wasika-text-muted mt-1 px-1">
-                    Tanyakan kode ini kepada pengelola keluarga Anda.
-                  </p>
+              {directBani ? (
+                <div className="space-y-6">
+                   <div className="text-center py-4 bg-wasika-copper/5 rounded-xl border border-wasika-copper/20">
+                     <p className="text-wasika-text-muted text-xs mb-1">KODENYA ADALAH</p>
+                     <p className="text-wasika-gold font-mono text-2xl font-bold tracking-widest">{directBani.bani_code}</p>
+                   </div>
+                   <button
+                    onClick={handleJoinBani}
+                    disabled={submitting}
+                    className="w-full bg-wasika-copper hover:bg-wasika-copper/90 text-white font-bold py-4 px-4 rounded-[11px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? "Menggabung..." : "KONFIRMASI GABUNG"}
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-wasika-copper hover:bg-wasika-copper/90 text-white font-bold py-3.5 px-4 rounded-[11px] transition-colors disabled:opacity-50"
-                >
-                  {submitting ? "Menggabung..." : "Gabung Keluarga"}
-                </button>
-              </form>
+              ) : (
+                <form onSubmit={handleJoinBani} className="space-y-4">
+                  <div>
+                    <label className="block text-wasika-text-muted text-sm mb-2">Kode Bani</label>
+                    <input
+                      type="text"
+                      value={baniCode}
+                      onChange={(e) => setBaniCode(e.target.value.toUpperCase())}
+                      placeholder="Masukkan kode, contoh: X4K9M2PQ"
+                      className="w-full bg-wasika-brown-dark/60 border border-wasika-gold/30 rounded-[11px] py-3.5 px-4 text-wasika-text-on-dark placeholder:text-wasika-text-muted/60 focus:outline-none focus:border-wasika-gold focus:ring-1 focus:ring-wasika-gold/50 text-base font-mono tracking-wider text-center text-lg"
+                      required
+                    />
+                    <p className="text-[10px] text-wasika-text-muted mt-1 px-1">
+                      Tanyakan kode ini kepada pengelola keluarga Anda.
+                    </p>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-wasika-copper hover:bg-wasika-copper/90 text-white font-bold py-3.5 px-4 rounded-[11px] transition-colors disabled:opacity-50"
+                  >
+                    {submitting ? "Menggabung..." : "Gabung Keluarga"}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}

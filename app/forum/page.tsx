@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation"
 import { Send, Calendar, ArrowRight, CheckCircle2 } from "lucide-react"
 import { BottomNav } from "@/components/wasika/bottom-nav"
 import Link from "next/link"
+import { useUser } from "@/context/user-context"
+import type { BaniMembership } from "@/types/database"
 
 interface Message {
   id: string
@@ -30,20 +32,25 @@ function formatTime(date: Date): string {
 
 export default function ForumPage() {
   const router = useRouter()
+  const { memberships } = useUser()
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [userProfile, setUserProfile] = useState<any>(null)
   const [person, setPerson] = useState<any>(null)
   const [activeEvent, setActiveEvent] = useState<any>(null)
   const [hasCheckedIn, setHasCheckedIn] = useState(false)
+  const [activeBaniId, setActiveBaniId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // tabs: memberships that have a valid bani
+  const baniTabs = memberships.filter(m => m.bani)
 
   const fetchMessages = useCallback(async (baniId: string) => {
     const supabase = createClient()
     const { data } = await supabase
       .from("forum_messages")
-      .select("*, persons(name)")
+      .select("*, persons(name, bani:banis(name))")
       .eq("bani_id", baniId)
       .order("created_at", { ascending: true })
       .limit(50)
@@ -74,13 +81,14 @@ export default function ForumPage() {
       setUserProfile(profile)
 
       if (profile?.bani_id) {
-        fetchMessages(profile.bani_id)
+        const effectiveBaniId = activeBaniId || profile.bani_id
+        fetchMessages(effectiveBaniId)
         
         // Fetch person
         const { data: personData } = await supabase.from("persons").select("*").eq("user_id", user.id).single()
         setPerson(personData)
 
-        // Fetch latest upcoming event (today or future)
+        // Fetch latest upcoming event (today or future) — check root or primary bani
         const today = new Date().toISOString().split("T")[0]
         const { data: events } = await supabase
           .from("events")
@@ -92,12 +100,13 @@ export default function ForumPage() {
 
         if (events?.[0] && personData) {
           setActiveEvent(events[0])
-          // Check checkin ONLY if it is today
           if (events[0].date === today) {
             const { count } = await supabase.from("mood_checkins").select("*", { count: "exact", head: true }).eq("event_id", events[0].id).eq("person_id", personData.id)
             setHasCheckedIn(!!count)
           }
         }
+
+        if (!activeBaniId) setActiveBaniId(profile.bani_id)
       }
     }
     
@@ -105,39 +114,39 @@ export default function ForumPage() {
   }, [router, fetchMessages])
 
   useEffect(() => {
-    if (!userProfile?.bani_id) return
+    if (!activeBaniId) return
     
     const supabase = createClient()
     const channel = supabase
-      .channel(`forum-${userProfile.bani_id}`)
+      .channel(`forum-${activeBaniId}`)
       .on("postgres_changes", { 
         event: "INSERT", 
         schema: "public", 
         table: "forum_messages", 
-        filter: `bani_id=eq.${userProfile.bani_id}` 
+        filter: `bani_id=eq.${activeBaniId}` 
       }, () => {
-        fetchMessages(userProfile.bani_id)
+        fetchMessages(activeBaniId)
       })
       .subscribe()
     
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [userProfile?.bani_id, fetchMessages])
+  }, [activeBaniId, fetchMessages])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
   const handleSend = async () => {
-    if (!newMessage.trim() || !userProfile?.bani_id || !person?.id) return
+    if (!newMessage.trim() || !activeBaniId || !person?.id) return
 
     const supabase = createClient()
     const content = newMessage.trim()
     setNewMessage("")
 
     await supabase.from("forum_messages").insert({
-      bani_id: userProfile.bani_id,
+      bani_id: activeBaniId,
       person_id: person.id,
       content: content
     })
@@ -152,7 +161,8 @@ export default function ForumPage() {
     }
   }
 
-  const baniName = userProfile?.banis?.name || "Keluarga"
+  const activeBani = baniTabs.find(m => m.bani_id === activeBaniId)?.bani
+  const baniName = activeBani?.name || userProfile?.banis?.name || "Keluarga"
   const currentUserId = person?.id || "temp"
 
   return (
@@ -160,10 +170,29 @@ export default function ForumPage() {
       {/* Dark Header */}
       <div className="bg-wasika-dark px-5 py-4 sticky top-0 z-40">
         <h1 className="font-serif text-xl text-wasika-gold">
-          Forum Bani {baniName}
+          Forum Keluarga
         </h1>
-        <p className="text-wasika-text-muted text-sm mt-0.5">
-          Siapapun bisa berdiskusi
+
+        {/* Bani Channel Tabs */}
+        {baniTabs.length > 1 && (
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-1 scrollbar-none">
+            {baniTabs.map(m => (
+              <button
+                key={m.bani_id}
+                onClick={() => { setActiveBaniId(m.bani_id); fetchMessages(m.bani_id) }}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  activeBaniId === m.bani_id
+                    ? 'bg-wasika-gold text-wasika-brown-dark'
+                    : 'bg-white/10 text-wasika-text-muted hover:bg-white/20'
+                }`}
+              >
+                {m.bani?.name || 'Bani'}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-wasika-text-muted text-xs mt-1">
+          {baniName}
         </p>
 
         {activeEvent && (

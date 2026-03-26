@@ -24,6 +24,7 @@ import { BottomNav } from "@/components/wasika/bottom-nav"
 
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
+import { useUser } from "@/context/user-context"
 
 // Types
 interface FamilyMember {
@@ -32,18 +33,25 @@ interface FamilyMember {
   gender?: string
   photo_url?: string
   user_id?: string
+  bani_id?: string
+  bani_name?: string
+  bani_level?: number
   type: "regular" | "you" | "spouse" | "placeholder"
 }
 
 interface CustomNodeData extends Record<string, unknown> {
   label: string
   member: FamilyMember
+  baniName?: string
+  baniLevel?: number
 }
 
 type CustomNodeProps = NodeProps<Node<CustomNodeData>>
 
 // Node Components
 function RegularNode({ data }: CustomNodeProps) {
+  const baniLevel = (data as any).baniLevel
+  const baniName = (data as any).baniName
   return (
     <div className="relative group">
       <Handle type="target" position={Position.Top} className="opacity-0 w-full h-2" />
@@ -53,6 +61,9 @@ function RegularNode({ data }: CustomNodeProps) {
         </div>
         <p className="text-wasika-brown-dark font-medium text-sm truncate">{String(data.label)}</p>
         <p className="text-wasika-text-muted text-[10px] mt-0.5">{String((data as any).relationLabel || "")}</p>
+        {baniLevel != null && baniLevel > 0 && baniName && (
+          <span className="inline-block mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-wasika-gold/10 text-wasika-gold border border-wasika-gold/20">{baniName}</span>
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} className="opacity-0 w-full h-2" />
     </div>
@@ -162,6 +173,7 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
 
 export default function FamilyTreePage() {
   const router = useRouter()
+  const { allBaniIds } = useUser()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null)
@@ -197,14 +209,33 @@ export default function FamilyTreePage() {
 
     if (profile?.bani_id || ownedBani?.id) {
       const activeBaniId = profile?.bani_id || ownedBani?.id
-      const { data: persons } = await supabase.from("persons").select("*").eq("bani_id", activeBaniId)
-      const { data: relations } = await supabase.from("relationships").select("*").eq("bani_id", activeBaniId)
+      // Use all bani IDs from memberships for family-wide tree, fallback to single bani_id
+      const baniIdsToFetch = allBaniIds.length > 0 ? allBaniIds : [activeBaniId]
+      
+      let allPersons: any[] = []
+      let allRelations: any[] = []
+      
+      for (const bid of baniIdsToFetch) {
+        const { data: ps } = await supabase.from("persons").select("*, bani:banis(id, name, bani_level)").eq("bani_id", bid)
+        const { data: rs } = await supabase.from("relationships").select("*").eq("bani_id", bid)
+        if (ps) allPersons = [...allPersons, ...ps]
+        if (rs) allRelations = [...allRelations, ...rs]
+      }
+      
+      // Deduplicate persons and relations
+      const persons = allPersons.filter((p, i, self) => i === self.findIndex(x => x.id === p.id))
+      const relations = allRelations.filter((r, i, self) => i === self.findIndex(x => x.id === r.id))
 
       if (persons && relations) {
         const newNodes: Node[] = persons.map((p: any) => ({
           id: p.id,
-          type: p.user_id === user.id ? "you" : (p.gender === "female" && relations.some(r => r.related_person_id === p.id && r.type === "spouse") ? "spouse" : "regular"),
-          data: { label: p.name, member: p },
+          type: p.user_id === user.id ? "you" : (p.gender === "female" && relations.some((r: any) => r.related_person_id === p.id && r.type === "spouse") ? "spouse" : "regular"),
+          data: { 
+            label: p.name, 
+            member: { ...p, bani_name: p.bani?.name, bani_level: p.bani?.bani_level },
+            baniName: p.bani?.name,
+            baniLevel: p.bani?.bani_level ?? 0
+          },
           position: { x: 0, y: 0 },
         }))
 

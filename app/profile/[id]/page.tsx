@@ -559,17 +559,37 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
         )}
 
         {currentUserId === profile.userId && (
-          <button
-            onClick={async () => {
-              const supabase = createClient()
-              await supabase.auth.signOut()
-              router.replace("/login")
-            }}
-            className="w-full py-4 rounded-2xl bg-white border border-red-200 text-red-600 font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-50 transition-colors shadow-sm"
-          >
-            <LogOut className="w-4 h-4" />
-            Keluar dari Akun
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={async () => {
+                if (confirm("Anda yakin ingin keluar dari Bani ini? Data pribadi Anda akan dilepas dari silsilah keluarga " + profile.bani_name + ".")) {
+                  const supabase = createClient()
+                  // 1. Unlink person from user
+                  await supabase.from("persons").update({ user_id: null }).eq("user_id", currentUserId)
+                  // 2. Unlink profile from bani
+                  await (supabase.from("profiles").update({ bani_id: null, role: 'anggota' }).eq("id", currentUserId) as any)
+                  
+                  router.replace("/join")
+                }
+              }}
+              className="w-full py-4 rounded-2xl bg-white border border-wasika-gold/40 text-wasika-gold font-bold text-sm flex items-center justify-center gap-2 hover:bg-wasika-gold/5 transition-colors shadow-sm"
+            >
+              <Users className="w-4 h-4" />
+              Keluar dari Bani
+            </button>
+
+            <button
+              onClick={async () => {
+                const supabase = createClient()
+                await supabase.auth.signOut()
+                router.replace("/login")
+              }}
+              className="w-full py-4 rounded-2xl bg-white border border-red-200 text-red-600 font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-50 transition-colors shadow-sm"
+            >
+              <LogOut className="w-4 h-4" />
+              Keluar dari Akun
+            </button>
+          </div>
         )}
       </div>
 

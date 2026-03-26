@@ -147,19 +147,40 @@ export default function PanitiaPage() {
   return (
     <main className="min-h-screen bg-wasika-cream pb-24">
       {/* Dark Header */}
-      <div className="bg-wasika-dark px-5 py-4">
-        <div className="flex items-center gap-2">
-          <h1 className="font-serif text-xl text-wasika-gold">
-            Dashboard Pengelola
-          </h1>
-          <span className="flex items-center gap-1.5 text-green-400 text-xs">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            Live
-          </span>
+      <div className="bg-wasika-dark px-5 py-4 flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="font-serif text-xl text-wasika-gold">
+              Dashboard Pengelola
+            </h1>
+            <span className="flex items-center gap-1.5 text-green-400 text-xs">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Live
+            </span>
+          </div>
+          <p className="text-wasika-text-muted text-sm mt-0.5">
+            {bani?.name || "Keluarga"}
+          </p>
         </div>
-        <p className="text-wasika-text-muted text-sm mt-0.5">
-          {bani?.name || "Keluarga"}
-        </p>
+        <button
+          onClick={async () => {
+            if (confirm("Beralih Bani? Anda akan keluar dari dashboard '" + bani?.name + "' sementara. Anda bisa mendaftar/bergabung ke Bani lain setelah ini.")) {
+              const supabase = createClient()
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                // We keep the person record but unlink the user from this bani in profile to allow switching
+                await (supabase.from("profiles").update({ bani_id: null, role: 'anggota' }).eq("id", user.id) as any)
+                // Also unlink from persons if we want them to re-bind elsewhere
+                await supabase.from("persons").update({ user_id: null }).eq("user_id", user.id)
+                router.replace("/join")
+              }
+            }
+          }}
+          className="p-2 rounded-full bg-wasika-gold/10 text-wasika-gold border border-wasika-gold/20 hover:bg-wasika-gold/20 transition-colors"
+          title="Beralih ke Bani Lain"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Info Bani & QR Section */}
