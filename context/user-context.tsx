@@ -33,6 +33,7 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export function UserProvider({ children }: { children: ReactNode }) {
+  const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [memberships, setMemberships] = useState<BaniMembership[]>([])
@@ -40,24 +41,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const syncUser = useCallback(async () => {
     try {
-      const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
       
       if (session?.user) {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('*, bani:banis(id, name, bani_level, parent_bani_id, bani_code, status, owner_id, description, location, created_at)')
-          .eq('id', session.user.id)
-          .single()
+        // Fetch profile and memberships in parallel for efficiency
+        const [profResult, membershipResult] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('*, bani:banis(id, name, bani_level, parent_bani_id, bani_code, status, owner_id, description, location, created_at)')
+            .eq('id', session.user.id)
+            .single(),
+          supabase
+            .from('bani_memberships')
+            .select('*, bani:banis(id, name, bani_level, parent_bani_id, bani_code, status, owner_id, description, location, created_at)')
+            .eq('user_id', session.user.id)
+            .limit(50)
+        ])
 
-        // Fetch all bani memberships (graceful fallback if table doesn't exist yet)
-        const { data: membershipData } = await supabase
-          .from('bani_memberships')
-          .select('*, bani:banis(id, name, bani_level, parent_bani_id, bani_code, status, owner_id, description, location, created_at)')
-          .eq('user_id', session.user.id)
-          .limit(50)
-
-        const mems: BaniMembership[] = membershipData || []
+        const prof = profResult.data
+        const mems: BaniMembership[] = membershipResult.data || []
+        
         setMemberships(mems)
 
         if (prof) {
@@ -75,8 +78,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
             baniName: primaryMem?.bani?.name || (prof as any).bani?.name,
             rootBaniName: rootMem?.bani?.name || (prof as any).bani?.name,
           })
-        } else {
-          setUser(null)
         }
       } else {
         setUser(null)
@@ -88,12 +89,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
     syncUser()
 
-    const supabase = createClient()
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'SIGNED_OUT') {
         setUser(null)
@@ -107,7 +107,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => {
       authListener.subscription.unsubscribe()
     }
-  }, [syncUser])
+  }, [syncUser, supabase])
 
   const primaryBani = memberships.find(
     m => m.membership_type === 'primary' || m.membership_type === 'pengelola'
