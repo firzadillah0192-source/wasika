@@ -110,7 +110,7 @@ export default function AktivitasPage() {
       }
     }
     init()
-  }, [router, supabase, memberships, rootBani, allBaniIds])
+  }, [router, memberships, allBaniIds])
 
   // Realtime subscription across ALL family banis
   useEffect(() => {
@@ -134,7 +134,7 @@ export default function AktivitasPage() {
     return () => {
       channels.forEach(ch => supabase.removeChannel(ch))
     }
-  }, [profile?.bani_id, person?.id, fetchPosts, supabase, allBaniIds])
+  }, [profile?.bani_id, person?.id, fetchPosts, allBaniIds])
 
   const handleRefreshNew = () => {
     setHasNewPosts(false)
