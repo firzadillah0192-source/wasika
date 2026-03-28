@@ -19,11 +19,11 @@ import {
 } from "@xyflow/react"
 import dagre from "dagre"
 import "@xyflow/react/dist/style.css"
-import { Search, FileText, X, User, Heart, Plus, ExternalLink, Calendar, ArrowRight } from "lucide-react"
+import { Search, FileText, X, User, Heart, Plus, ExternalLink, Calendar, ArrowRight, Edit3, Trash2 } from "lucide-react"
 import { BottomNav } from "@/components/wasika/bottom-nav"
 
 import { createClient } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { useUser } from "@/context/user-context"
 
 // Types
@@ -173,7 +173,9 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
 
 export default function FamilyTreePage() {
   const router = useRouter()
-  const { allBaniIds } = useUser()
+  const searchParams = useSearchParams()
+  const isManageMode = searchParams.get("manage") === "true"
+  const { allBaniIds, memberships } = useUser()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null)
@@ -183,6 +185,7 @@ export default function FamilyTreePage() {
   const [bani, setBani] = useState<any>(null)
   const [activeEvent, setActiveEvent] = useState<any>(null)
   const [hasCheckedIn, setHasCheckedIn] = useState(false)
+  const isManager = memberships.some(m => m.membership_type === 'pengelola') || userProfile?.role === 'panitia' || userProfile?.role === 'superadmin'
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
@@ -192,7 +195,7 @@ export default function FamilyTreePage() {
       return
     }
 
-    const { data: profile } = await (supabase.from("profiles").select("*, banis(*)").eq("id", user.id).single() as any)
+    const { data: profile } = await (supabase.from("profiles").select("*, banis!profiles_bani_id_fkey(*)").eq("id", user.id).single() as any)
     
     // Sync role and bani_id if user is an owner of a bani
     const { data: ownedBani } = await supabase.from("banis").select("*").eq("owner_id", user.id).maybeSingle()
@@ -378,6 +381,28 @@ export default function FamilyTreePage() {
     setSelectedMember(node.data.member as FamilyMember)
   }, [])
 
+  const handleDelete = async (member: FamilyMember) => {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus ${member.name}? Seluruh data keturunan dan aktivitasnya akan ikut terhapus.`)) {
+      return
+    }
+    
+    try {
+      const res = await fetch(`/api/persons/${member.id}`, {
+        method: 'DELETE',
+      })
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Gagal menghapus anggota')
+      }
+      
+      setSelectedMember(null)
+      fetchData() // Refresh tree
+    } catch (error: any) {
+      alert(error.message)
+    }
+  }
+
   const youNode = useMemo(() => nodes.find(n => n.type === "you"), [nodes])
   const defaultViewport = useMemo(() => {
     if (youNode && typeof youNode.position.x === 'number' && !isNaN(youNode.position.x)) {
@@ -435,6 +460,11 @@ export default function FamilyTreePage() {
             {bani?.name || "Keluarga"}
           </h1>
           <div className="flex gap-2">
+            {isManager && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-bold animate-pulse">
+                EDIT MODE
+              </div>
+            )}
             <button 
               onClick={() => setShowSearch(!showSearch)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-wasika-gold/40 text-wasika-gold text-sm hover:bg-wasika-gold/10 transition-colors"
@@ -601,6 +631,42 @@ export default function FamilyTreePage() {
                   <X className="w-4 h-4 text-wasika-brown-dark" />
                 </button>
               </div>
+              
+              {isManager ? (
+                <div className="flex flex-col gap-3 mb-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => router.push(`/tree/edit?edit=${selectedMember.id}`)}
+                      className="flex items-center justify-center gap-2 py-3 px-4 rounded-[11px] bg-wasika-brown-dark text-wasika-gold font-bold hover:bg-black transition-colors"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Edit Data
+                    </button>
+                    <button
+                      onClick={() => router.push(`/tree/edit?parentId=${selectedMember.id}`)}
+                      className="flex items-center justify-center gap-2 py-3 px-4 rounded-[11px] bg-wasika-copper text-white font-bold hover:bg-wasika-copper/90 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Tambah Anak
+                    </button>
+                    <button
+                      onClick={() => router.push(`/tree/edit?spouseId=${selectedMember.id}`)}
+                      className="flex items-center justify-center gap-2 py-3 px-4 rounded-[11px] bg-rose-500 text-white font-bold hover:bg-rose-600 transition-colors"
+                    >
+                      <Heart className="w-4 h-4" />
+                      Tambah Pasangan
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(selectedMember)}
+                    className="flex items-center justify-center gap-2 py-3 px-4 rounded-[11px] bg-red-100/50 text-red-600 font-bold hover:bg-red-100 transition-colors border border-red-200"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Hapus Anggota
+                  </button>
+                </div>
+              ) : null}
+
               <Link
                 href={`/profile/${selectedMember.id}`}
                 className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-[11px] bg-wasika-gold text-wasika-brown-dark font-bold hover:bg-wasika-gold-light transition-colors"

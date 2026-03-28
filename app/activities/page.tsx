@@ -14,7 +14,7 @@ import { useUser } from '@/context/user-context'
 
 export default function AktivitasPage() {
   const router = useRouter()
-  const { memberships, allBaniIds, user: ctxUser } = useUser()
+  const { memberships, rootBani, allBaniIds, user: ctxUser } = useUser()
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<any>(null)
   const [person, setPerson] = useState<any>(null)
@@ -45,20 +45,72 @@ export default function AktivitasPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return router.replace("/login")
+      try {
+        setLoading(true)
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return router.replace("/login")
 
-      const { data: prof } = await supabase.from('profiles').select('*, banis(name)').eq('id', user.id).single()
-      if (!prof?.bani_id) return router.replace("/join")
+        // 1. Load Profile - specify relationship to avoid ambiguity
+        const { data: prof, error: profErr } = await supabase.from('profiles')
+          .select('*, banis!profiles_bani_id_fkey(name)')
+          .eq('id', user.id)
+          .maybeSingle()
+        if (profErr) console.error("Profile Load Error:", profErr)
+        
+        // Feed Rollup: Determine the main Bani ID to use
+        const rootId = (prof as any)?.root_bani_id || (rootBani as any)?.id
+        let activeBaniId = prof?.bani_id
+        
+        if (!activeBaniId && memberships.length > 0) {
+          const primaryMem = memberships.find(m => m.membership_type === 'primary' || m.membership_type === 'pengelola')
+          activeBaniId = primaryMem?.bani_id || memberships[0].bani_id
+        }
 
-      const { data: pers } = await supabase.from('persons').select('*').eq('user_id', user.id).single()
-      
-      setProfile(prof)
-      setPerson(pers)
-      fetchPosts()
+        if (!activeBaniId) {
+           console.warn("No activeBaniId found for user")
+           setLoading(false)
+           return
+        }
+        
+        // Auto-sync profile to bani_id if it's currently missing
+        if (prof && !prof.bani_id) {
+           await supabase.from("profiles").update({ 
+               bani_id: activeBaniId,
+               root_bani_id: rootId
+           }).eq("id", user.id)
+        }
+
+        // 2. Load Person (Family Identity)
+        const { data: pers, error: persErr } = await supabase.from('persons').select('*').eq("user_id", user.id).maybeSingle()
+        if (persErr) console.error("Person Load Error:", persErr)
+        
+        setProfile(prof)
+        setPerson(pers)
+
+        if (!pers) {
+           console.warn("User has no person record linked to their auth id")
+           setLoading(false)
+           return
+        }
+
+        // 3. Load Posts
+        const { data: postsData, error: postsErr } = await (supabase.from('posts')
+          .select('*, person:persons(id, name), reactions(*)')
+          .in('bani_id', allBaniIds.length > 0 ? allBaniIds : [activeBaniId])
+          .order('created_at', { ascending: false })
+          .limit(25) as any)
+        
+        if (postsErr) console.error("Posts Load Error:", postsErr)
+        setPosts(postsData || [])
+
+      } catch (err) {
+        console.error("Initiating activity page failed:", err)
+      } finally {
+        setLoading(false)
+      }
     }
     init()
-  }, [router, fetchPosts, supabase])
+  }, [router, supabase, memberships, rootBani, allBaniIds])
 
   // Realtime subscription across ALL family banis
   useEffect(() => {

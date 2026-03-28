@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Users, AlertTriangle, GitBranch, Layers, MessageCircle, Edit3, Calendar, Plus, ChevronRight, QrCode } from "lucide-react"
+import { useUser } from "@/context/user-context"
 import { BottomNav } from "@/components/wasika/bottom-nav"
 
 interface MoodStat {
@@ -22,6 +23,7 @@ interface AttentionMember {
 
 export default function PanitiaPage() {
   const router = useRouter()
+  const { memberships } = useUser()
   const [loading, setLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<any>(null)
   const [bani, setBani] = useState<any>(null)
@@ -40,101 +42,166 @@ export default function PanitiaPage() {
       return
     }
 
-    const { data: profile } = await (supabase.from("profiles").select("*, banis(*)").eq("id", user.id).single() as any)
+    const { data: profile } = await (supabase.from("profiles").select("*, banis!profiles_bani_id_fkey(*)").eq("id", user.id).single() as any)
     console.log("Panitia Debug - Profile:", profile)
-    
-    // Auto-fix for Panitia without matching bani_id link
-    const { data: ownedBani } = await supabase.from("banis").select("*").eq("owner_id", user.id).single()
-    console.log("Panitia Debug - Owned Bani:", ownedBani)
 
-    // Auto-generate bani_code if missing
-    if (ownedBani && !ownedBani.bani_code) {
-      const newCode = Math.random().toString(36).substring(2, 8).toUpperCase()
-      await supabase.from("banis").update({ bani_code: newCode }).eq("id", ownedBani.id)
-      ownedBani.bani_code = newCode
+    const isManager = profile?.role === "panitia" || profile?.role === "superadmin" || memberships.some(m => m.membership_type === 'pengelola')
+
+    // SECURITY CHECK: Only panitia, superadmin, or pengelola can be here
+    if (!isManager) {
+      router.replace("/tree")
+      return
     }
 
-    if (ownedBani && profile && (!profile.bani_id || profile.bani_id !== ownedBani.id)) {
-       console.log("Panitia Debug - Auto-linking profile to owned bani")
-       await supabase.from("profiles").update({ bani_id: ownedBani.id }).eq("id", user.id)
-       await supabase.from("persons").update({ bani_id: ownedBani.id }).eq("user_id", user.id)
+    // Determine target bani for management
+    let activeBaniId = profile?.bani_id
+    if (!activeBaniId) {
+      const pMem = memberships.find(m => m.membership_type === 'pengelola' || m.membership_type === 'primary')
+      activeBaniId = pMem?.bani_id
+    }
+
+    if (!activeBaniId) {
+      setLoading(false)
+      return
+    }
+
+    // Defensive check: If profile is missing but user is a manager via memberships
+    if (!profile) {
+      console.warn("Panitia Debug - Profile is null but user is authorized.")
+      setLoading(false)
+      return
+    }
+
+    // Auto-fix for Panitia without matching role
+    if (profile.role !== 'panitia' && profile.role !== 'superadmin') {
+       console.log("Panitia Debug - Auto-linking profile to manager role")
+       await supabase.from("profiles").update({ 
+         bani_id: activeBaniId,
+         role: 'panitia' 
+       }).eq("id", user.id)
+       
+       await supabase.from("persons").update({ bani_id: activeBaniId }).eq("user_id", user.id)
        // Refresh local
-       profile.bani_id = ownedBani.id
-       profile.banis = ownedBani
+       profile.bani_id = activeBaniId
+       profile.role = 'panitia'
+    }
+
+    // Ensure we have bani info for the local state
+    if (!profile.banis || profile.banis.id !== activeBaniId) {
+       const { data: bData } = await supabase.from("banis").select("*").eq("id", activeBaniId).single()
+       if (bData) {
+         profile.banis = bData
+         setBani(bData)
+       }
+    } else {
+       setBani(profile.banis)
     }
 
     setUserProfile(profile)
-    setBani(profile?.banis || ownedBani)
 
-    if (profile?.bani_id) {
-      // 1. Fetch Present Count (latest event)
-      const { data: events } = await supabase.from("events").select("id").eq("bani_id", profile.bani_id).order("date", { ascending: false }).limit(1)
-      const eventId = events?.[0]?.id
+    // 1. Fetch Attendances for latest event
+    const { data: latestEvent } = await supabase
+      .from("events")
+      .select("*")
+      .eq("bani_id", activeBaniId)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    let presentCountVal = 0
+    let attentionArr: AttentionMember[] = []
+    let totalMoods = 0
+    let currentMoodStats: MoodStat[] = []
+
+    if (latestEvent) {
+      const { count } = await supabase.from("attendances").select("*", { count: "exact", head: true }).eq("event_id", latestEvent.id)
+      presentCountVal = count || 0
       
-      let presentCount = 0
-      if (eventId) {
-        const { count } = await supabase.from("attendances").select("*", { count: "exact", head: true }).eq("event_id", eventId)
-        presentCount = count || 0
-      }
-
-      // 2. Fetch Mood Checkins for stats and attention
-      if (eventId) {
-        const { data: moodData } = await (supabase.from("mood_checkins")
-          .select("*, persons(id, name)")
-          .eq("event_id", eventId)
-          .order("created_at", { ascending: false }) as any)
+      const { data: moodData } = await (supabase.from("mood_checkins")
+        .select("*, persons(id, name)")
+        .eq("event_id", latestEvent.id)
+        .order("created_at", { ascending: false }) as any)
       
       if (moodData) {
-        setTotalMoodCount(moodData.length)
-        
-        // Aggregate
+        totalMoods = moodData.length
         const agg: Record<string, MoodStat> = {}
-        const attentionArr: AttentionMember[] = []
-
+        
         moodData.forEach((m: any) => {
-          if (!agg[m.mood_id]) {
-            agg[m.mood_id] = { emoji: m.mood_emoji, label: m.mood_label, count: 0, category: m.mood_category }
+          if (!agg[m.mood_emoji]) {
+            agg[m.mood_emoji] = { emoji: m.mood_emoji, label: m.mood_label || m.mood_emoji, count: 0, category: m.mood_category || "netral" }
           }
-          agg[m.mood_id].count++
+          agg[m.mood_emoji].count++
 
-          if (m.mood_category === "berat") {
+          if (m.mood_category === "berat" || ["😢", "😠", "😰", "😴"].includes(m.mood_emoji)) {
             attentionArr.push({
-              id: m.persons?.id,
+              id: m.person_id,
               name: m.persons?.name || "Keluarga",
-              mood: `${m.mood_emoji} ${m.mood_label}`,
+              mood: `${m.mood_emoji} ${m.mood_label || ""}`,
               note: m.note
             })
           }
         })
-
-        const sortedMoods = Object.values(agg).sort((a, b) => b.count - a.count)
-        setMoodStats(sortedMoods)
-        setMaxMoodCount(Math.max(...sortedMoods.map(m => m.count), 1))
+        currentMoodStats = Object.values(agg)
+        setTotalMoodCount(totalMoods)
+        setMoodStats(currentMoodStats)
+        setMaxMoodCount(Math.max(...currentMoodStats.map(m => m.count), 1))
         setNeedsAttention(attentionArr)
-        setStats(prev => ({ ...prev, attention: attentionArr.length, present: presentCount }))
       }
     }
 
-      // 3. Silsilah Stats
-      const { data: persons } = await supabase.from("persons").select("id").eq("bani_id", profile.bani_id)
-      const { data: relations } = await supabase.from("relationships").select("person_id").eq("bani_id", profile.bani_id)
-      
-      if (persons && persons.length > 0) {
-        const withRelations = new Set(relations?.map(r => r.person_id)).size
-        const perc = Math.round((withRelations / persons.length) * 100)
-        setStats(prev => ({ ...prev, silsilah: perc }))
-      }
-
-      // 4. Fetch All Events
-      const { data: allEvents } = await supabase.from("events").select("*").eq("bani_id", profile.bani_id).order("date", { ascending: false })
-      if (allEvents) setEvents(allEvents)
+    // 2. Silsilah Stats
+    const { data: persons } = await supabase.from("persons").select("id").eq("bani_id", activeBaniId)
+    const { data: relations } = await supabase.from("relationships").select("person_id").eq("bani_id", activeBaniId)
+    
+    let completionPerc = 0
+    if (persons && persons.length > 0) {
+      const withRelations = new Set(relations?.map(r => r.person_id)).size
+      completionPerc = Math.round((withRelations / persons.length) * 100)
     }
+    
+    setStats({
+      present: presentCountVal,
+      attention: attentionArr.length,
+      silsilah: completionPerc,
+      generations: 0 // Will need separate calculation if needed
+    })
+
+    // 3. Fetch All Events
+    const { data: allEvents } = await supabase.from("events").select("*").eq("bani_id", activeBaniId).order("date", { ascending: false })
+    if (allEvents) setEvents(allEvents)
+
     setLoading(false)
-  }, [router])
+  }, [router, memberships])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    if (!userProfile?.bani_id) return
+    
+    // Realtime subscription
+    const supabase = createClient()
+    let timeoutId: any
+    
+    const debouncedFetch = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        fetchData()
+      }, 500)
+    }
+
+    const channel = supabase
+      .channel(`panitia-updates-${userProfile.bani_id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "persons", filter: `bani_id=eq.${userProfile.bani_id}` }, () => debouncedFetch())
+      .on("postgres_changes", { event: "*", schema: "public", table: "relationships", filter: `bani_id=eq.${userProfile.bani_id}` }, () => debouncedFetch())
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearTimeout(timeoutId)
+    }
+  }, [userProfile?.bani_id, fetchData])
 
   if (loading) {
     return (
@@ -354,7 +421,7 @@ export default function PanitiaPage() {
         {/* Quick Links */}
         <div className="grid grid-cols-2 gap-3">
           <Link
-            href="/tree"
+            href="/tree?manage=true"
             className="bg-white rounded-2xl border border-wasika-text-muted/20 p-4 shadow-sm hover:border-wasika-gold transition-colors"
           >
             <Edit3 className="w-6 h-6 text-wasika-gold mb-2" />

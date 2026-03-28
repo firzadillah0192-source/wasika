@@ -21,7 +21,7 @@ const panitiaNavItem = {
 
 export function BottomNav() {
   const pathname = usePathname()
-  const { user, isLoading } = useUser()
+  const { user, memberships, isLoading } = useUser()
 
   // Wait until loading is finished to avoid menu flicker/wrong menu
   if (isLoading) {
@@ -33,7 +33,7 @@ export function BottomNav() {
   }
 
   const userRole = user?.role || 'anggota'
-  const isManagement = userRole === "panitia" || userRole === "superadmin"
+  const isManagement = userRole === "panitia" || userRole === "superadmin" || memberships.some(m => m.membership_type === 'pengelola')
 
   const displayItems = isManagement 
     ? [...baseNavItems, panitiaNavItem]

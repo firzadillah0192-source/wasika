@@ -67,18 +67,8 @@ export default function GachaPage() {
       }
     }
 
-    // Update Points in DB
-    const supabase = createClient()
     const newPoints = points - COST
-    
-    await supabase.from("persons").update({ points: newPoints }).eq("id", personId)
-    await supabase.from("points_history").insert({
-      person_id: personId,
-      points: -COST,
-      activity_type: "gacha",
-      note: `Gacha: ${selected.name}`
-    })
-
+    // Update Points locally (DB points are being phased out)
     setPoints(newPoints)
     setResult(selected)
     setIsSpinning(false)

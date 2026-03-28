@@ -182,21 +182,15 @@ export default function CheckinPage() {
         })
         if (moodErr) throw moodErr
 
-        // Save attendance
-        await supabase.from("attendances").upsert({
-          person_id: person.id,
-          event_id: activeEvent.id
-        })
-
-        // Award Points (best-effort, don't block)
-        const newPoints = (person.points || 0) + 100
-        await supabase.from("persons").update({ points: newPoints }).eq("id", person.id)
-        await supabase.from("points_history").insert({
-          person_id: person.id,
-          points: 100,
-          activity_type: "checkin",
-          note: `Check-in di ${activeEvent.name}`
-        })
+        // Save attendance (defensive, ignore if already exists)
+        try {
+          await supabase.from("attendances").upsert(
+            { person_id: person.id, event_id: activeEvent.id },
+            { onConflict: 'person_id, event_id' }
+          )
+        } catch (atErr) {
+          console.warn("Attendance recording skipped or already exists:", atErr)
+        }
       }
 
       // Even if no person/event, we proceed to tree or form

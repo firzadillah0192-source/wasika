@@ -297,6 +297,8 @@ alter table saved_posts enable row level security;
 create policy "bani members read posts" on posts
   for select using (
     bani_id in (select bani_id from profiles where id = auth.uid())
+    or 
+    bani_id in (select bani_id from persons where user_id = auth.uid())
   );
 create policy "authenticated insert post" on posts
   for insert with check (auth.role() = 'authenticated');
@@ -307,9 +309,7 @@ create policy "owner delete post" on posts
 
 create policy "bani members read reactions" on reactions
   for select using (
-    post_id in (select id from posts where bani_id in (
-      select bani_id from profiles where id = auth.uid()
-    ))
+    post_id in (select id from posts)
   );
 create policy "authenticated manage reactions" on reactions
   for all using (auth.role() = 'authenticated');
@@ -334,4 +334,4 @@ alter publication supabase_realtime add table reactions;
 alter publication supabase_realtime add table comments;
 
 -- API Grants
-GRANT ALL ON TABLE posts, reactions, comments, saved_posts TO authenticated, anon;
+GRANT ALL ON TABLE posts, reactions, comments, saved_posts TO authenticated, anon, service_role;
